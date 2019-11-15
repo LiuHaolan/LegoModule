@@ -50,11 +50,8 @@ unsigned int append(char* msg_data, unsigned int msg_size, struct list_head* nam
 	strcpy(tmp->msg_data, msg_data);
 	tmp->msg_size = msg_size;
 
-/* spin lock acquire here */
-	unsigned long flags;
-
 	list_add_tail(&tmp->list, name_nid_dict);	
-	
+
 	return 1;
 	/* return error
 	*/
@@ -71,6 +68,7 @@ unsigned int pop(char* msg_data, int* msg_size, struct list_head* name_nid_dict)
 		
 	strcpy(msg_data, item->msg_data);
 	*msg_size = item->msg_size;
+
 	list_del(&item->list);
 
 	kfree(item->msg_data);	
@@ -96,6 +94,11 @@ void print(struct list_head* name_nid_dict){
 
 
 void free_all(struct list_head* name_nid_dict){
+//	unsigned long flags;
+//	struct name_mq_map* lock_item = list_entry(name_nid_dict, struct name_mq_map, list);
+	
+//	spin_lock_irqsave(&lock_item->mq_lock,flags);
+
 	struct list_head* cur=name_nid_dict->next;
 	while(cur != name_nid_dict){		
 		struct mc_msg_queue* item = list_entry(cur, struct mc_msg_queue, list);
@@ -108,6 +111,7 @@ void free_all(struct list_head* name_nid_dict){
 		kfree(item);
 	}
 	
+//	spin_unlock_irqrestore(&lock_item->mq_lock,flags);
 }
 
 LIST_HEAD(addr_map);
@@ -166,7 +170,8 @@ unsigned int mc_mq_open(char* mq_name, unsigned int max_size)
 }
 
 unsigned int mc_mq_send(char *mq_name, char* msg_data, unsigned int msg_size){
-	// find out where is our mq head pointer
+	
+/* find out where is our mq head pointer */
 	struct name_mq_map *pos, *target = NULL;
 	list_for_each_entry(pos, &addr_map, list){
 		if(strcmp(mq_name, pos->mq_name)==0){
@@ -174,23 +179,37 @@ unsigned int mc_mq_send(char *mq_name, char* msg_data, unsigned int msg_size){
 		}
 	}
 	if(target != NULL){
+		/* spin lock acquire here */
+		unsigned long flags;
+		
+		spin_lock_irqsave(&target->mq_lock,flags);
 		append(msg_data, msg_size, target->mq);
+		spin_unlock_irqrestore(&target->mq_lock,flags);
 		return 1;	
 	}
 	return 0;
 }
 
 unsigned int mc_mq_receive(char *mq_name, char* msg_data, unsigned int* msg_size){
-	// find out where is our mq head pointer
+
+
+	/* find out where is our mq head pointer */
 	struct name_mq_map *pos, *target = NULL;
 	list_for_each_entry(pos, &addr_map, list){
 		if(strcmp(mq_name, pos->mq_name)==0){
 			target = pos;		
 		}
 	}
-	if(target ==NULL)
+	if(target ==NULL){
 		return 0;
+	}
+
+	/* spin lock acquire here */
+	unsigned long flags;
+	
+	spin_lock_irqsave(&target->mq_lock,flags);
 	pop(msg_data, msg_size, target->mq);
+	spin_unlock_irqrestore(&target->mq_lock,flags);
 	return 1;
 }
 
@@ -260,9 +279,9 @@ static int test_w(void* data)
 	char* name = argu->name;
 	int max_size = argu->max_size;
 
-	mc_mq_open(name, max_size);
-//	mc_mq_close(name);
-
+	mc_mq_send("steven", name, strlen(name));
+	mc_mq_send("jishen", name, strlen(name));
+	
 	while(!kthread_should_stop()){
 		flush_signals(current);
 		set_current_state(TASK_INTERRUPTIBLE);
@@ -284,7 +303,7 @@ int thread_init(long n){
 	strcpy((argu[0])->name,"haolan1");
 	strcpy((argu[1])->name,"haolan2");
 	strcpy((argu[2])->name,"haolan3");
-	strcpy((argu[3])->name,"haolan1");
+	strcpy((argu[3])->name,"haolan4");
 	
 	long a = 0;	
 	for(j=0;j<4;j++){
@@ -322,14 +341,15 @@ static int mq_test_module_init(void)
 
 	print(&yi_list);
 */
-/*	mc_mq_open("max",90);
+	spin_lock_init(&map_lock);
+
+	mc_mq_open("max",90);
 	mc_mq_open("steven",80);
 	mc_mq_close("max");
 	mc_mq_open("jishen",90);
-	mc_mq_send("steven", "NVSL", 4);
-	mc_mq_send("jishen", "STABLE", 6);
-	mc_mq_send("steven", "WUKLAB", 6);
+	
 
+/*
 	char* msg = kmalloc(sizeof(char)*(MAX_FILENAME_LENGTH+1), GFP_KERNEL);	
 	int size;	
 	if(mc_mq_receive("steven",msg,&size))
@@ -338,7 +358,7 @@ static int mq_test_module_init(void)
 		printk("%s: %d\n", msg, size);
 	kfree(msg);
 */
-	spin_lock_init(&map_lock);
+	
 	thread_init(3);
 
 	return 0;
