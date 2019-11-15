@@ -118,7 +118,24 @@ unsigned int mc_mq_open(char* mq_name, unsigned int max_size)
 /*
  * what if we already got a message queue with that name in the name map?	
  */
-	
+	unsigned long flags;
+	spin_lock_irqsave(&map_lock, flags);
+
+	struct name_mq_map *pos, *target = NULL;
+	list_for_each_entry(pos, &addr_map, list){
+		
+		if(strcmp(mq_name, pos->mq_name)==0){
+			target = pos;		
+		}
+	}
+	if(target != NULL){
+		spin_unlock_irqrestore(&map_lock, flags);
+		return 0;
+	}
+	/* return 0 means message queue already exist	
+	*/
+	spin_unlock_irqrestore(&map_lock, flags);
+
 	printk("begin open %s direc\n", mq_name);
 
 	struct name_mq_map* tmp;
@@ -139,7 +156,6 @@ unsigned int mc_mq_open(char* mq_name, unsigned int max_size)
 /* init the lock */
 	spin_lock_init(&tmp->mq_lock);
 
-	unsigned long flags;
 	spin_lock_irqsave(&map_lock, flags);
 
 	list_add_tail(&tmp->list, &addr_map);	
@@ -245,7 +261,7 @@ static int test_w(void* data)
 	int max_size = argu->max_size;
 
 	mc_mq_open(name, max_size);
-	mc_mq_close(name);
+//	mc_mq_close(name);
 
 	while(!kthread_should_stop()){
 		flush_signals(current);
@@ -268,7 +284,7 @@ int thread_init(long n){
 	strcpy((argu[0])->name,"haolan1");
 	strcpy((argu[1])->name,"haolan2");
 	strcpy((argu[2])->name,"haolan3");
-	strcpy((argu[3])->name,"haolan4");
+	strcpy((argu[3])->name,"haolan1");
 	
 	long a = 0;	
 	for(j=0;j<4;j++){
@@ -335,7 +351,7 @@ static void mq_test_module_exit(void)
 	thread_destroy();
 	printk("thread k destroyed\n");
 	mc_mq_free();
-//	free_all(&yi_list);
+
 	printk("free done\n");
 
 }
